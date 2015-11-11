@@ -27,6 +27,7 @@ from twisted.web.client import PartialDownloadError
 import logging
 import bcrypt
 import simplejson
+import urllib2
 
 import synapse.util.stringutils as stringutils
 
@@ -286,6 +287,27 @@ class AuthHandler(BaseHandler):
         """
         user_id, password_hash = yield self._find_user_id_and_pwd_hash(user_id)
         self._check_password(user_id, password, password_hash)
+
+        reg_handler = self.hs.get_handlers().registration_handler
+        access_token = reg_handler.generate_token(user_id)
+        logger.info("Logging in user %s", user_id)
+        yield self.store.add_access_token_to_user(user_id, access_token)
+        defer.returnValue((user_id, access_token))
+
+    @defer.inlineCallbacks
+    def login_with_authtoken(self, authtoken):
+        """
+        Authenticates the user with authtoken from Accounts Service
+        Args:
+            authtoken:
+
+        Returns:
+
+        """
+
+        response = urllib2.urlopen('http://yadoctor.kz/api/accounts/validate/' + authtoken)
+        user_id = simplejson.load(response)
+        user_id, password_hash = yield self._find_user_id_and_pwd_hash(user_id)
 
         reg_handler = self.hs.get_handlers().registration_handler
         access_token = reg_handler.generate_token(user_id)

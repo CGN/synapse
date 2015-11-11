@@ -21,6 +21,7 @@ from base import ClientV1RestServlet, client_path_pattern
 
 import simplejson as json
 import urllib
+import urllib2
 
 import logging
 from saml2 import BINDING_HTTP_POST
@@ -35,6 +36,7 @@ class LoginRestServlet(ClientV1RestServlet):
     PATTERN = client_path_pattern("/login$")
     PASS_TYPE = "m.login.password"
     SAML2_TYPE = "m.login.saml2"
+    AUTHTOKEN_TYPE = "m.login.authtoken"
 
     def __init__(self, hs):
         super(LoginRestServlet, self).__init__(hs)
@@ -42,9 +44,10 @@ class LoginRestServlet(ClientV1RestServlet):
         self.saml2_enabled = hs.config.saml2_enabled
 
     def on_GET(self, request):
-        flows = [{"type": LoginRestServlet.PASS_TYPE}]
-        if self.saml2_enabled:
-            flows.append({"type": LoginRestServlet.SAML2_TYPE})
+        flows = [{"type" : LoginRestServlet.AUTHTOKEN_TYPE}]
+        # flows = [{"type": LoginRestServlet.PASS_TYPE}]
+        # if self.saml2_enabled:
+        #     flows.append({"type": LoginRestServlet.SAML2_TYPE})
         return (200, {"flows": flows})
 
     def on_OPTIONS(self, request):
@@ -54,7 +57,10 @@ class LoginRestServlet(ClientV1RestServlet):
     def on_POST(self, request):
         login_submission = _parse_json(request)
         try:
-            if login_submission["type"] == LoginRestServlet.PASS_TYPE:
+            if login_submission["type"] == LoginRestServlet.AUTHTOKEN_TYPE:
+                result = yield self.do_authtoken_login(login_submission)
+                defer.returnValue(result)
+            elif login_submission["type"] == LoginRestServlet.PASS_TYPE:
                 result = yield self.do_password_login(login_submission)
                 defer.returnValue(result)
             elif self.saml2_enabled and (login_submission["type"] ==
@@ -71,6 +77,22 @@ class LoginRestServlet(ClientV1RestServlet):
                 raise SynapseError(400, "Bad login type.")
         except KeyError:
             raise SynapseError(400, "Missing JSON keys.")
+
+    @defer.inlineCallbacks
+    def do_authtoken_login(self, login_submission):
+        authtoken = login_submission['authtoken']
+
+        user_id, token = yield self.handlers.auth_handler.login_with_authtoken(authtoken=authtoken)
+
+        result = {
+            "user_id": user_id,
+            "access_token": token,
+            "home_server": self.hs.hostname
+        }
+
+        defer.returnValue((200, result))
+
+
 
     @defer.inlineCallbacks
     def do_password_login(self, login_submission):
